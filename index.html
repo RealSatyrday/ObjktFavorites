@@ -12,6 +12,7 @@
     select { margin: 20px 0; padding: 5px; font-size: 16px; }
     a { color: #6cf; text-decoration: none; }
     a:hover { text-decoration: underline; }
+    p { color: #aaa; }
 </style>
 </head>
 <body>
@@ -39,7 +40,8 @@ const artists = [
     { name: "vnderworld", wallet: "tz1c2JsjfPrj5U7WM19YXh4KWaeiFg1a8GNY", profile: "https://objkt.com/@vnderworld" }
 ];
 
-const endpoint = "https://data.objkt.com/v3/graphql";
+// CORS-friendly endpoint via proxy
+const endpoint = "https://corsproxy.io/?https://data.objkt.com/v3/graphql";
 
 async function fetchArtistTokens(wallet, days) {
     const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
@@ -59,17 +61,23 @@ async function fetchArtistTokens(wallet, days) {
       }
     }
     `;
-    const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query })
-    });
-    const data = await res.json();
-    return data.data.tokens || [];
+    try {
+        const res = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query })
+        });
+        const data = await res.json();
+        return data.data.tokens || [];
+    } catch (err) {
+        console.error("Error fetching tokens:", err);
+        return [];
+    }
 }
 
 async function renderArtists(days) {
     const container = document.getElementById("artists-container");
+    container.innerHTML = "<p>Loading...</p>";
     container.innerHTML = "";
     for (let artist of artists.sort((a,b) => a.name.localeCompare(b.name))) {
         const section = document.createElement("div");
@@ -92,10 +100,12 @@ async function renderArtists(days) {
             section.appendChild(msg);
         } else {
             tokens.forEach(token => {
-                const img = document.createElement("img");
-                img.src = token.display_uri?.replace("ipfs://", "https://ipfs.io/ipfs/");
-                img.alt = token.name || "NFT";
-                grid.appendChild(img);
+                if (token.display_uri) {
+                    const img = document.createElement("img");
+                    img.src = token.display_uri.replace("ipfs://", "https://ipfs.io/ipfs/");
+                    img.alt = token.name || "NFT";
+                    grid.appendChild(img);
+                }
             });
             section.appendChild(grid);
         }
@@ -107,7 +117,8 @@ document.getElementById("timeframe").addEventListener("change", e => {
     renderArtists(parseInt(e.target.value));
 });
 
-renderArtists(1); // Default: last 24 hours
+// Default load: last 24 hours
+renderArtists(1);
 </script>
 
 </body>
