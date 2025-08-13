@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Objkt Favorites Viewer</title>
+<title>Objkt Favorites Viewer (Debug)</title>
 <style>
     body { font-family: Arial, sans-serif; background-color: #111; color: #eee; }
     h2 { margin-top: 40px; border-bottom: 1px solid #555; padding-bottom: 4px; }
@@ -13,11 +13,12 @@
     a { color: #6cf; text-decoration: none; }
     a:hover { text-decoration: underline; }
     p { color: #aaa; }
+    pre { background: #222; padding: 10px; white-space: pre-wrap; word-wrap: break-word; }
 </style>
 </head>
 <body>
 
-<h1>Objkt Favorites Viewer</h1>
+<h1>Objkt Favorites Viewer (Debug)</h1>
 <label for="timeframe">Show works from the last:</label>
 <select id="timeframe">
     <option value="1">Day</option>
@@ -40,7 +41,6 @@ const artists = [
     { name: "vnderworld", wallet: "tz1c2JsjfPrj5U7WM19YXh4KWaeiFg1a8GNY", profile: "https://objkt.com/@vnderworld" }
 ];
 
-// CORS-friendly endpoint via proxy
 const endpoint = "https://corsproxy.io/?https://data.objkt.com/v3/graphql";
 
 async function fetchArtistTokens(wallet, days) {
@@ -53,7 +53,7 @@ async function fetchArtistTokens(wallet, days) {
           created_at: { _gte: "${sinceDate}" }
         },
         order_by: { created_at: desc },
-        limit: 20
+        limit: 5
       ) {
         token_id
         display_uri
@@ -68,10 +68,9 @@ async function fetchArtistTokens(wallet, days) {
             body: JSON.stringify({ query })
         });
         const data = await res.json();
-        return data.data?.tokens || [];
+        return data;
     } catch (err) {
-        console.error("Error fetching tokens:", err);
-        return [];
+        return { error: err.message };
     }
 }
 
@@ -92,13 +91,19 @@ async function renderArtists(days) {
         const grid = document.createElement("div");
         grid.className = "thumb-grid";
 
-        const tokens = await fetchArtistTokens(artist.wallet, days);
-        if (tokens.length === 0) {
+        const response = await fetchArtistTokens(artist.wallet, days);
+        console.log(`Response for ${artist.name}:`, response);
+
+        if (response.error) {
+            const msg = document.createElement("p");
+            msg.textContent = `Error: ${response.error}`;
+            section.appendChild(msg);
+        } else if (!response.data || !response.data.tokens || response.data.tokens.length === 0) {
             const msg = document.createElement("p");
             msg.textContent = "No new works in this timeframe.";
             section.appendChild(msg);
         } else {
-            tokens.forEach(token => {
+            response.data.tokens.forEach(token => {
                 if (token.display_uri) {
                     const img = document.createElement("img");
                     img.src = token.display_uri.replace("ipfs://", "https://ipfs.io/ipfs/");
@@ -108,6 +113,12 @@ async function renderArtists(days) {
             });
             section.appendChild(grid);
         }
+
+        // Show raw JSON for debugging
+        const pre = document.createElement("pre");
+        pre.textContent = JSON.stringify(response, null, 2);
+        section.appendChild(pre);
+
         container.appendChild(section);
     }
 }
@@ -116,7 +127,6 @@ document.getElementById("timeframe").addEventListener("change", e => {
     renderArtists(parseInt(e.target.value));
 });
 
-// Default load: last 24 hours
 renderArtists(1);
 </script>
 
