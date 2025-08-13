@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Objkt Favorites Viewer</title>
+<style>
+    body { font-family: Arial, sans-serif; background-color: #111; color: #eee; }
+    h2 { margin-top: 40px; border-bottom: 1px solid #555; padding-bottom: 4px; }
+    .artist-section { margin-bottom: 30px; }
+    .thumb-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+    .thumb-grid img { max-width: 200px; height: auto; border-radius: 6px; border: 1px solid #444; }
+    select { margin: 20px 0; padding: 5px; font-size: 16px; }
+    a { color: #6cf; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<h1>Objkt Favorites Viewer</h1>
+<label for="timeframe">Show works from the last:</label>
+<select id="timeframe">
+    <option value="1">Day</option>
+    <option value="7">Week</option>
+    <option value="30">Month</option>
+</select>
+
+<div id="artists-container"></div>
+
+<script>
+const artists = [
+    { name: "k335h", wallet: "tz1ia3oZXyDyY33yKVwpLgtkYnuxhNJfKvD7", profile: "https://objkt.com/@k335h" },
+    { name: "plasm0", wallet: "tz1UotpHBXxjjtf22SuVMeEKKrMH3yiUPduQ", profile: "https://objkt.com/@plasm0" },
+    { name: "davidvnun", wallet: "tz1hAPbbZeDqqVESYbP2yPTSF9WEtXDXdwH7", profile: "https://objkt.com/@davidvnun" },
+    { name: "neonbone", wallet: "tz1g84JgmW3qMbG1nUJdvTQNM2BGs3vGMKyc", profile: "https://objkt.com/@neonbone" },
+    { name: "danielw", wallet: "tz1NnocCetPcTzSgj1PWJSP4nzYBx5VCkHQ1", profile: "https://objkt.com/@danielw" },
+    { name: "cyberocelot", wallet: "tz1ZXcFZr7gPts6PJwrcmczWPuNRRVZRQ3Zb", profile: "https://objkt.com/@cyberocelot" },
+    { name: "kuragin", wallet: "tz1MtKGbDrAe3uAMqLsuSxBixLqS4DxUHvNn", profile: "https://objkt.com/@kuragin" },
+    { name: "pablo5k", wallet: "tz1aZ4PGrzbmF1jFWcn2pWohP3ZPEeHWb2ri", profile: "https://objkt.com/@pablo5k" },
+    { name: "vnderworld", wallet: "tz1c2JsjfPrj5U7WM19YXh4KWaeiFg1a8GNY", profile: "https://objkt.com/@vnderworld" }
+];
+
+const endpoint = "https://data.objkt.com/v3/graphql";
+
+async function fetchArtistTokens(wallet, days) {
+    const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const query = `
+    query {
+      tokens(
+        where: {
+          creator_address: {_eq: "${wallet}"},
+          minted_at: {_gte: "${sinceDate}"}
+        },
+        order_by: {minted_at: desc},
+        limit: 20
+      ) {
+        token_id
+        display_uri
+        name
+      }
+    }
+    `;
+    const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query })
+    });
+    const data = await res.json();
+    return data.data.tokens || [];
+}
+
+async function renderArtists(days) {
+    const container = document.getElementById("artists-container");
+    container.innerHTML = "";
+    for (let artist of artists.sort((a,b) => a.name.localeCompare(b.name))) {
+        const section = document.createElement("div");
+        section.className = "artist-section";
+        const heading = document.createElement("h2");
+        const link = document.createElement("a");
+        link.href = artist.profile;
+        link.textContent = artist.name;
+        link.target = "_blank";
+        heading.appendChild(link);
+        section.appendChild(heading);
+
+        const grid = document.createElement("div");
+        grid.className = "thumb-grid";
+
+        const tokens = await fetchArtistTokens(artist.wallet, days);
+        if (tokens.length === 0) {
+            const msg = document.createElement("p");
+            msg.textContent = "No new works in this timeframe.";
+            section.appendChild(msg);
+        } else {
+            tokens.forEach(token => {
+                const img = document.createElement("img");
+                img.src = token.display_uri?.replace("ipfs://", "https://ipfs.io/ipfs/");
+                img.alt = token.name || "NFT";
+                grid.appendChild(img);
+            });
+            section.appendChild(grid);
+        }
+        container.appendChild(section);
+    }
+}
+
+document.getElementById("timeframe").addEventListener("change", e => {
+    renderArtists(parseInt(e.target.value));
+});
+
+renderArtists(1); // Default: last 24 hours
+</script>
+
+</body>
+</html>
