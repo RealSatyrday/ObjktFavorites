@@ -1,57 +1,233 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Objkt API Schema Debug</title>
+<meta charset="UTF-8" />
+<title>Objkt Favorites Viewer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
-  body { font-family: monospace; background: #111; color: #0f0; padding: 20px; }
-  h1 { color: #0ff; }
-  pre { white-space: pre-wrap; }
+  :root {
+    --bg: #0f1115; --fg: #e7e7e7; --muted: #a0a0a0; --accent: #69cfff; --card: #171a21; --border: #2a2f3a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: var(--bg); color: var(--fg); }
+  header { padding: 24px 16px; max-width: 1100px; margin: 0 auto; }
+  h1 { margin: 0 0 8px; font-weight: 800; letter-spacing: 0.2px; }
+  .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  label { color: var(--muted); }
+  select { padding: 8px 10px; background: var(--card); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 16px 40px; }
+  .artist-section { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin: 14px 0 18px; }
+  .artist-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .artist-header h2 { margin: 0; font-size: 18px; }
+  .artist-header a { color: var(--accent); text-decoration: none; }
+  .artist-header a:hover { text-decoration: underline; }
+  .thumb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-top: 12px; }
+  .thumb { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: #0b0d11; }
+  .thumb img { width: 100%; height: 100%; display: block; aspect-ratio: 1/1; object-fit: cover; }
+  .thumb .meta { padding: 8px; font-size: 12px; color: var(--muted); }
+  .msg { color: var(--muted); margin: 8px 0 0; font-size: 14px; }
+  .err { color: #ff6b6b; font-size: 13px; margin-top: 6px; word-break: break-word; }
+  .loading { opacity: 0.7; }
 </style>
 </head>
 <body>
-<h1>Objkt API Schema Debug</h1>
-<div id="output">Fetching schema...</div>
+
+<header>
+  <h1>Objkt Favorites Viewer</h1>
+  <div class="controls">
+    <label for="timeframe">Show works from the last</label>
+    <select id="timeframe" aria-label="Timeframe">
+      <option value="1">Day</option>
+      <option value="7">Week</option>
+      <option value="30">Month</option>
+    </select>
+  </div>
+</header>
+
+<main id="artists-container" aria-live="polite"></main>
 
 <script>
-const endpoint = "https://data.objkt.com/v3/graphql";
+/**
+ * Favorite artists list
+ */
+const artists = [
+  { name: "k335h", wallet: "tz1ia3oZXyDyY33yKVwpLgtkYnuxhNJfKvD7", profile: "https://objkt.com/@k335h" },
+  { name: "plasm0", wallet: "tz1UotpHBXxjjtf22SuVMeEKKrMH3yiUPduQ", profile: "https://objkt.com/@plasm0" },
+  { name: "davidvnun", wallet: "tz1hAPbbZeDqqVESYbP2yPTSF9WEtXDXdwH7", profile: "https://objkt.com/@davidvnun" },
+  { name: "neonbone", wallet: "tz1g84JgmW3qMbG1nUJdvTQNM2BGs3vGMKyc", profile: "https://objkt.com/@neonbone" },
+  { name: "danielw", wallet: "tz1NnocCetPcTzSgj1PWJSP4nzYBx5VCkHQ1", profile: "https://objkt.com/@danielw" },
+  { name: "cyberocelot", wallet: "tz1ZXcFZr7gPts6PJwrcmczWPuNRRVZRQ3Zb", profile: "https://objkt.com/@cyberocelot" },
+  { name: "kuragin", wallet: "tz1MtKGbDrAe3uAMqLsuSxBixLqS4DxUHvNn", profile: "https://objkt.com/@kuragin" },
+  { name: "pablo5k", wallet: "tz1aZ4PGrzbmF1jFWcn2pWohP3ZPEeHWb2ri", profile: "https://objkt.com/@pablo5k" },
+  { name: "vnderworld", wallet: "tz1c2JsjfPrj5U7WM19YXh4KWaeiFg1a8GNY", profile: "https://objkt.com/@vnderworld" }
+].sort((a,b) => a.name.localeCompare(b.name));
 
-// Standard GraphQL introspection query to list root fields
-const introspectionQuery = `
-query IntrospectionQuery {
-  __schema {
-    queryType {
-      fields {
-        name
-        description
+/**
+ * CORS proxy for Objkt GraphQL v3
+ * (direct calls from GitHub Pages are CORS-blocked)
+ */
+const GRAPHQL = "https://corsproxy.io/?https://data.objkt.com/v3/graphql";
+
+/**
+ * Build a GraphQL query that:
+ *  - Looks up rows in token_creator by creator address
+ *  - Filters by the related token's created_at >= sinceDate
+ *  - Orders by token.created_at desc
+ *  - Returns the related token { name, display_uri, artifact_uri, thumbnail_uri, created_at }
+ *
+ * This matches Hasura-style schema (which Objkt v3 uses).
+ */
+function makeQuery(address, sinceIso, limit = 24) {
+  return `
+    query FetchByCreator {
+      token_creator(
+        where: {
+          address: { _eq: "${address}" }
+          token: { created_at: { _gte: "${sinceIso}" } }
+        }
+        order_by: { token: { created_at: desc } }
+        limit: ${limit}
+      ) {
+        token {
+          token_id
+          name
+          created_at
+          display_uri
+          artifact_uri
+          thumbnail_uri
+        }
       }
+    }
+  `;
+}
+
+/** Convert ipfs://… to https gateway */
+function ipfsToHttp(uri) {
+  if (!uri) return null;
+  if (uri.startsWith("ipfs://")) return uri.replace("ipfs://", "https://ipfs.io/ipfs/");
+  return uri;
+}
+
+/** Choose the best available image field */
+function pickImage(t) {
+  return ipfsToHttp(t.display_uri) || ipfsToHttp(t.artifact_uri) || ipfsToHttp(t.thumbnail_uri) || null;
+}
+
+/** Fetch helper */
+async function gqlFetch(query) {
+  const res = await fetch(GRAPHQL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query })
+  });
+  return res.json();
+}
+
+/** Render all artists for the selected timeframe */
+async function renderArtists(days) {
+  const container = document.getElementById("artists-container");
+  container.innerHTML = "";
+  const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  for (const artist of artists) {
+    const section = document.createElement("section");
+    section.className = "artist-section loading";
+
+    // Header
+    const header = document.createElement("div");
+    header.className = "artist-header";
+    const h2 = document.createElement("h2");
+    const a = document.createElement("a");
+    a.href = artist.profile; a.target = "_blank"; a.rel = "noopener";
+    a.textContent = artist.name;
+    h2.appendChild(a);
+    header.appendChild(h2);
+    section.appendChild(header);
+
+    const msg = document.createElement("div");
+    msg.className = "msg";
+    msg.textContent = "Loading…";
+    section.appendChild(msg);
+
+    container.appendChild(section);
+
+    // Fetch
+    try {
+      const query = makeQuery(artist.wallet, sinceIso, 24);
+      const json = await gqlFetch(query);
+
+      section.classList.remove("loading");
+
+      if (json.errors) {
+        msg.className = "err";
+        msg.textContent = "API error: " + json.errors.map(e => e.message).join("; ");
+        continue;
+      }
+
+      const rows = json?.data?.token_creator ?? [];
+      const tokens = rows
+        .map(r => r.token)
+        .filter(Boolean);
+
+      if (!tokens.length) {
+        msg.className = "msg";
+        msg.textContent = "No new works in this timeframe.";
+        continue;
+      }
+
+      msg.remove();
+
+      const grid = document.createElement("div");
+      grid.className = "thumb-grid";
+
+      for (const t of tokens) {
+        const url = pickImage(t);
+        if (!url) continue;
+
+        const card = document.createElement("div");
+        card.className = "thumb";
+
+        const img = document.createElement("img");
+        img.loading = "lazy";
+        img.alt = t.name || "NFT";
+        img.src = url;
+
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        const dt = new Date(t.created_at);
+        meta.textContent = (t.name || "Untitled") + " • " + (isNaN(dt) ? "" : dt.toLocaleDateString());
+
+        card.appendChild(img);
+        card.appendChild(meta);
+        grid.appendChild(card);
+      }
+
+      if (grid.children.length === 0) {
+        const none = document.createElement("div");
+        none.className = "msg";
+        none.textContent = "Found works, but none had a displayable image URI.";
+        section.appendChild(none);
+      } else {
+        section.appendChild(grid);
+      }
+    } catch (e) {
+      section.classList.remove("loading");
+      msg.className = "err";
+      msg.textContent = "Network error: " + (e?.message || e);
     }
   }
 }
-`;
 
-fetch(endpoint, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ query: introspectionQuery })
-})
-.then(res => res.json())
-.then(data => {
-  const outputDiv = document.getElementById("output");
-  if (data.errors) {
-    outputDiv.textContent = "Error:\n" + JSON.stringify(data.errors, null, 2);
-    return;
-  }
-  const fields = data.data.__schema.queryType.fields;
-  let text = "Root-level query fields found:\n\n";
-  fields.forEach(f => {
-    text += `- ${f.name}${f.description ? " — " + f.description : ""}\n`;
-  });
-  outputDiv.textContent = text;
-})
-.catch(err => {
-  document.getElementById("output").textContent = "Fetch error: " + err;
+/** Hook up the dropdown */
+const select = document.getElementById("timeframe");
+select.addEventListener("change", (e) => {
+  const days = parseInt(e.target.value, 10);
+  renderArtists(days);
 });
+
+/** Default load: Day */
+renderArtists(1);
 </script>
+
 </body>
 </html>
