@@ -60,86 +60,80 @@
   <div id="gallery" class="gallery"></div>
 
   <script>
-  const artists = [
-    "tz1TYd4bEkWN5bsjwKdkM7hSuFtS59AA1shh",
-    "tz1aZ4PGrzbmF1jFWcn2pWohP3ZPEeHWb2ri",
-    "tz1bPeLLc8uHagf9mM7cPTfX55bsjhzq5Y3W"
-  ];
+    const artists = [
+      "tz1TYd4bEkWN5bsjwKdkM7hSuFtS59AA1shh",
+      "tz1aZ4PGrzbmF1jFWcn2pWohP3ZPEeHWb2ri",
+      "tz1bPeLLc8uHagf9mM7cPTfX55bsjhzq5Y3W"
+    ];
 
-  function ipfsToHttp(uri) {
-    if (!uri) return "";
-    return uri.replace("ipfs://", "https://ipfs.io/ipfs/");
-  }
-
-  async function fetchTokens(wallet) {
-    const query = `
-      query {
-        tokens(
-          where: {creator_address: {_eq: "${wallet}"}}
-          order_by: {minted_at: desc}
-          limit: 20
-        ) {
-          token_id
-          name
-          display_uri
-          thumbnail_uri
-          minted_at
-        }
-      }`;
-    
-    const res = await fetch("https://api.objkt.com/v3/graphql", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query })
-    });
-    const json = await res.json();
-    return json.data.tokens.map(t => ({...t, wallet}));
-  }
-
-  async function loadGallery() {
-    const now = new Date();
-    const filter = document.getElementById("timeFilter").value;
-
-    let cutoff = new Date(0); // default = all
-    if (filter === "day") cutoff = new Date(now - 24*60*60*1000);
-    if (filter === "week") cutoff = new Date(now - 7*24*60*60*1000);
-    if (filter === "month") cutoff = new Date(now - 30*24*60*60*1000);
-
-    let allTokens = [];
-    for (const a of artists) {
-      try {
-        const tokens = await fetchTokens(a);
-        allTokens.push(...tokens);
-      } catch (e) {
-        console.error("Error fetching for", a, e);
-      }
+    async function fetchTokens(wallet) {
+      const query = `
+        query {
+          tokens(
+            where: {creator_address: {_eq: "${wallet}"}}
+            order_by: {minted_at: desc}
+            limit: 20
+          ) {
+            token_id
+            name
+            display_uri
+            thumbnail_uri
+            minted_at
+          }
+        }`;
+      
+      const res = await fetch("https://api.objkt.com/v3/graphql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query })
+      });
+      const json = await res.json();
+      return json.data.tokens.map(t => ({...t, wallet}));
     }
 
-    // filter by time
-    allTokens = allTokens.filter(t => new Date(t.minted_at) >= cutoff);
+    async function loadGallery() {
+      const now = new Date();
+      const filter = document.getElementById("timeFilter").value;
 
-    // sort newest first
-    allTokens.sort((a, b) => new Date(b.minted_at) - new Date(a.minted_at));
+      let cutoff = new Date(0); // default = all
+      if (filter === "day") cutoff = new Date(now - 24*60*60*1000);
+      if (filter === "week") cutoff = new Date(now - 7*24*60*60*1000);
+      if (filter === "month") cutoff = new Date(now - 30*24*60*60*1000);
 
-    // render
-    const gallery = document.getElementById("gallery");
-    gallery.innerHTML = "";
-    allTokens.forEach(t => {
-      const card = document.createElement("div");
-      card.className = "card";
-      const imgUrl = ipfsToHttp(t.display_uri) || ipfsToHttp(t.thumbnail_uri);
-      card.innerHTML = `
-        <img src="${imgUrl}" alt="${t.name || "Untitled"}" />
-        <h3>${t.name || "Untitled"}</h3>
-        <p>${t.wallet}</p>
-        <p>${new Date(t.minted_at).toLocaleString()}</p>
-      `;
-      gallery.appendChild(card);
-    });
-  }
+      let allTokens = [];
+      for (const a of artists) {
+        try {
+          const tokens = await fetchTokens(a);
+          allTokens.push(...tokens);
+        } catch (e) {
+          console.error("Error fetching for", a, e);
+        }
+      }
 
-  document.getElementById("timeFilter").addEventListener("change", loadGallery);
-  loadGallery();
-</script>
+      // filter by time
+      allTokens = allTokens.filter(t => new Date(t.minted_at) >= cutoff);
+
+      // sort newest first
+      allTokens.sort((a, b) => new Date(b.minted_at) - new Date(a.minted_at));
+
+      // render
+      const gallery = document.getElementById("gallery");
+      gallery.innerHTML = "";
+      allTokens.forEach(t => {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = `
+          <img src="${t.display_uri || t.thumbnail_uri}" alt="${t.name || "Untitled"}" />
+          <h3>${t.name || "Untitled"}</h3>
+          <p>${t.wallet}</p>
+          <p>${new Date(t.minted_at).toLocaleString()}</p>
+        `;
+        gallery.appendChild(card);
+      });
+    }
+
+    document.getElementById("timeFilter").addEventListener("change", loadGallery);
+    loadGallery();
+  </script>
 </body>
 </html>
