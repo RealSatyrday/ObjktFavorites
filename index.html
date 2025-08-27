@@ -1,85 +1,139 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Objkt Favorites (Test)</title>
+  <meta charset="UTF-8" />
+  <title>OBJKT Favorites</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    h1 { font-size: 1.5em; }
-    select { margin-bottom: 15px; }
-    ul { list-style: none; padding: 0; }
-    li { margin-bottom: 10px; padding: 5px; border-bottom: 1px solid #ccc; }
+    body {
+      font-family: Arial, sans-serif;
+      background: #111;
+      color: #eee;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 {
+      text-align: center;
+    }
+    select {
+      display: block;
+      margin: 10px auto;
+      padding: 5px;
+      font-size: 16px;
+    }
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 15px;
+      margin-top: 20px;
+    }
+    .card {
+      background: #222;
+      border-radius: 10px;
+      overflow: hidden;
+      padding: 10px;
+    }
+    .card img {
+      max-width: 100%;
+      border-radius: 8px;
+      display: block;
+      margin-bottom: 8px;
+    }
+    .card h3 {
+      font-size: 14px;
+      margin: 5px 0;
+    }
+    .card p {
+      font-size: 12px;
+      margin: 2px 0;
+      color: #aaa;
+    }
   </style>
 </head>
 <body>
-  <h1>Objkt Favorites (Test Data)</h1>
-  
-  <label for="filter">Show by:</label>
-  <select id="filter">
-    <option value="day">Day</option>
-    <option value="week">Week</option>
-    <option value="month">Month</option>
+  <h1>OBJKT Favorites (Live)</h1>
+  <select id="timeFilter">
+    <option value="day">Last 24 Hours</option>
+    <option value="week">Last 7 Days</option>
+    <option value="month">Last 30 Days</option>
+    <option value="all">All</option>
   </select>
-  
-  <ul id="art-list"></ul>
+  <div id="gallery" class="gallery"></div>
 
   <script>
-    async function loadArtworks() {
-      const response = await fetch('test_data.json');
-      const data = await response.json();
-      return data;
-    }
+    const artists = [
+      "tz1TYd4bEkWN5bsjwKdkM7hSuFtS59AA1shh",
+      "tz1aZ4PGrzbmF1jFWcn2pWohP3ZPEeHWb2ri",
+      "tz1bPeLLc8uHagf9mM7cPTfX55bsjhzq5Y3W"
+    ];
 
-    function filterArtworks(artworks, range) {
-      const now = new Date();
-      let cutoff;
-
-      if (range === 'day') {
-        cutoff = new Date(now);
-        cutoff.setDate(now.getDate() - 1);
-      } else if (range === 'week') {
-        cutoff = new Date(now);
-        cutoff.setDate(now.getDate() - 7);
-      } else if (range === 'month') {
-        cutoff = new Date(now);
-        cutoff.setMonth(now.getMonth() - 1);
-      }
-
-      return artworks.filter(art => new Date(art.date) >= cutoff);
-    }
-
-    function displayArtworks(artworks) {
-  const list = document.getElementById('art-list');
-  list.innerHTML = '';
-  if (artworks.length === 0) {
-    list.innerHTML = '<li>No artworks in this range.</li>';
-  } else {
-    artworks.forEach(art => {
-      const li = document.createElement('li');
-      li.innerHTML = `
-        <strong>${art.artist}</strong> — ${art.title} (${art.date})<br>
-        <img src="${art.image}" alt="${art.title}" style="max-width:200px; margin-top:5px;">
-      `;
-      list.appendChild(li);
-    });
-  }
-}
-
-
-    async function init() {
-      const artworks = await loadArtworks();
-      const filter = document.getElementById('filter');
+    async function fetchTokens(wallet) {
+      const query = `
+        query {
+          tokens(
+            where: {creator_address: {_eq: "${wallet}"}}
+            order_by: {minted_at: desc}
+            limit: 20
+          ) {
+            token_id
+            name
+            display_uri
+            thumbnail_uri
+            minted_at
+          }
+        }`;
       
-      function updateDisplay() {
-        const filtered = filterArtworks(artworks, filter.value);
-        displayArtworks(filtered);
-      }
-
-      filter.addEventListener('change', updateDisplay);
-      updateDisplay(); // initial load
+      const res = await fetch("https://api.objkt.com/v3/graphql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query })
+      });
+      const json = await res.json();
+      return json.data.tokens.map(t => ({...t, wallet}));
     }
 
-    init();
+    async function loadGallery() {
+      const now = new Date();
+      const filter = document.getElementById("timeFilter").value;
+
+      let cutoff = new Date(0); // default = all
+      if (filter === "day") cutoff = new Date(now - 24*60*60*1000);
+      if (filter === "week") cutoff = new Date(now - 7*24*60*60*1000);
+      if (filter === "month") cutoff = new Date(now - 30*24*60*60*1000);
+
+      let allTokens = [];
+      for (const a of artists) {
+        try {
+          const tokens = await fetchTokens(a);
+          allTokens.push(...tokens);
+        } catch (e) {
+          console.error("Error fetching for", a, e);
+        }
+      }
+
+      // filter by time
+      allTokens = allTokens.filter(t => new Date(t.minted_at) >= cutoff);
+
+      // sort newest first
+      allTokens.sort((a, b) => new Date(b.minted_at) - new Date(a.minted_at));
+
+      // render
+      const gallery = document.getElementById("gallery");
+      gallery.innerHTML = "";
+      allTokens.forEach(t => {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = `
+          <img src="${t.display_uri || t.thumbnail_uri}" alt="${t.name || "Untitled"}" />
+          <h3>${t.name || "Untitled"}</h3>
+          <p>${t.wallet}</p>
+          <p>${new Date(t.minted_at).toLocaleString()}</p>
+        `;
+        gallery.appendChild(card);
+      });
+    }
+
+    document.getElementById("timeFilter").addEventListener("change", loadGallery);
+    loadGallery();
   </script>
 </body>
 </html>
