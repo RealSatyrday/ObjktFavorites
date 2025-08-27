@@ -49,18 +49,22 @@
     }
 
     function displayArtworks(artworks) {
-      const list = document.getElementById('art-list');
-      list.innerHTML = '';
-      if (artworks.length === 0) {
-        list.innerHTML = '<li>No artworks in this range.</li>';
-      } else {
-        artworks.forEach(art => {
-          const li = document.createElement('li');
-          li.textContent = `${art.artist} — ${art.title} (${art.date})`;
-          list.appendChild(li);
-        });
-      }
-    }
+  const list = document.getElementById('art-list');
+  list.innerHTML = '';
+  if (artworks.length === 0) {
+    list.innerHTML = '<li>No artworks in this range.</li>';
+  } else {
+    artworks.forEach(art => {
+      const li = document.createElement('li');
+      li.innerHTML = `
+        <strong>${art.artist}</strong> — ${art.title} (${art.date})<br>
+        <img src="${art.image}" alt="${art.title}" style="max-width:200px; margin-top:5px;">
+      `;
+      list.appendChild(li);
+    });
+  }
+}
+
 
     async function init() {
       const artworks = await loadArtworks();
